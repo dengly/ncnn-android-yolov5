@@ -26,6 +26,11 @@
         android:text="识别-gpu" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
     <ImageView
         android:id="@+id/imageView"
         android:layout_width="fill_parent"

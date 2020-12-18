@@ -29,6 +29,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.TextView;
 
 import java.io.FileNotFoundException;
 import java.io.InputStream;
@@ -39,10 +40,13 @@ public class MainActivity extends Activity
     private static final int SELECT_IMAGE = 1;
 
     private ImageView imageView;
+    private TextView timeTV;
     private Bitmap bitmap = null;
     private Bitmap yourSelectedImage = null;
 
     private YoloV5Ncnn yolov5ncnn = new YoloV5Ncnn();
+
+    private long time;
 
     /** Called when the activity is first created. */
     @Override
@@ -51,13 +55,14 @@ public class MainActivity extends Activity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-        boolean ret_init = yolov5ncnn.Init(getAssets());
+        boolean ret_init = yolov5ncnn.Init(getAssets(), "face-best-sim-opt.param", "face-best-sim-opt.bin");
         if (!ret_init)
         {
             Log.e("MainActivity", "yolov5ncnn Init failed");
         }
 
         imageView = (ImageView) findViewById(R.id.imageView);
+        timeTV = (TextView) findViewById(R.id.time);
 
         Button buttonImage = (Button) findViewById(R.id.buttonImage);
         buttonImage.setOnClickListener(new View.OnClickListener() {
@@ -76,9 +81,11 @@ public class MainActivity extends Activity
                 if (yourSelectedImage == null)
                     return;
 
+                time = System.currentTimeMillis();
                 YoloV5Ncnn.Obj[] objects = yolov5ncnn.Detect(yourSelectedImage, false);
+                time = System.currentTimeMillis() - time;
 
-                showObjects(objects);
+                showObjects(objects, true);
             }
         });
 
@@ -89,20 +96,24 @@ public class MainActivity extends Activity
                 if (yourSelectedImage == null)
                     return;
 
+                time = System.currentTimeMillis();
                 YoloV5Ncnn.Obj[] objects = yolov5ncnn.Detect(yourSelectedImage, true);
+                time = System.currentTimeMillis() - time;
 
-                showObjects(objects);
+                showObjects(objects, false);
             }
         });
     }
 
-    private void showObjects(YoloV5Ncnn.Obj[] objects)
+    private void showObjects(YoloV5Ncnn.Obj[] objects, boolean isCpu)
     {
         if (objects == null)
         {
             imageView.setImageBitmap(bitmap);
             return;
         }
+
+        timeTV.setText((isCpu ? "CPU" : "GPU") + "耗时 " + time +" ms");
 
         // draw objects on bitmap
         Bitmap rgba = bitmap.copy(Bitmap.Config.ARGB_8888, true);

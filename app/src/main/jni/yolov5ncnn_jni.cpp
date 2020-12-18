@@ -305,7 +305,7 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved)
 }
 
 // public native boolean Init(AssetManager mgr);
-JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* env, jobject thiz, jobject assetManager)
+JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* env, jobject thiz, jobject assetManager, jstring paramFileName, jstring binFileName)
 {
     ncnn::Option opt;
     opt.lightmode = true;
@@ -324,9 +324,11 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* e
 
     yolov5.register_custom_layer("YoloV5Focus", YoloV5Focus_layer_creator);
 
+    const char *param_file_name = env->GetStringUTFChars(paramFileName, JNI_FALSE);
+
     // init param
     {
-        int ret = yolov5.load_param(mgr, "yolov5s.param");
+        int ret = yolov5.load_param(mgr, param_file_name);
         if (ret != 0)
         {
             __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "load_param failed");
@@ -334,9 +336,10 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* e
         }
     }
 
+    const char *bin_file_name = env->GetStringUTFChars(binFileName, JNI_FALSE);
     // init bin
     {
-        int ret = yolov5.load_model(mgr, "yolov5s.bin");
+        int ret = yolov5.load_model(mgr, bin_file_name);
         if (ret != 0)
         {
             __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "load_model failed");
@@ -448,7 +451,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
         // stride 16
         {
             ncnn::Mat out;
-            ex.extract("781", out);
+            ex.extract("771", out);
 
             ncnn::Mat anchors(6);
             anchors[0] = 30.f;
@@ -467,7 +470,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
         // stride 32
         {
             ncnn::Mat out;
-            ex.extract("801", out);
+            ex.extract("791", out);
 
             ncnn::Mat anchors(6);
             anchors[0] = 116.f;
@@ -517,16 +520,19 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
     }
 
     // objects to Obj[]
+//    static const char* class_names[] = {
+//        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+//        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+//        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+//        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+//        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+//        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+//        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+//        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+//        "hair drier", "toothbrush"
+//    };
     static const char* class_names[] = {
-        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-        "hair drier", "toothbrush"
+            "face"
     };
 
     jobjectArray jObjArray = env->NewObjectArray(objects.size(), objCls, NULL);

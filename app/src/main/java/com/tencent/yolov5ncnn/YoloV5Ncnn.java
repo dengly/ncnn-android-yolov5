@@ -19,7 +19,7 @@ import android.graphics.Bitmap;
 
 public class YoloV5Ncnn
 {
-    public native boolean Init(AssetManager mgr);
+    public native boolean Init(AssetManager mgr, String paramFileName, String binFileName);
 
     public class Obj
     {
