@@ -25,9 +25,13 @@ import android.media.ExifInterface;
 import android.graphics.Matrix;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -41,6 +45,7 @@ public class MainActivity extends Activity
 
     private ImageView imageView;
     private TextView timeTV;
+    private EditText faceScaleET;
     private Bitmap bitmap = null;
     private Bitmap yourSelectedImage = null;
 
@@ -55,7 +60,7 @@ public class MainActivity extends Activity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-        boolean ret_init = yolov5ncnn.Init(getAssets(), "face-best-sim-opt.param", "face-best-sim-opt.bin");
+        boolean ret_init = yolov5ncnn.Init(getAssets(), "face-best-sim-opt.param", "face-best-sim-opt.bin", 32);
         if (!ret_init)
         {
             Log.e("MainActivity", "yolov5ncnn Init failed");
@@ -63,6 +68,26 @@ public class MainActivity extends Activity
 
         imageView = (ImageView) findViewById(R.id.imageView);
         timeTV = (TextView) findViewById(R.id.time);
+        faceScaleET = (EditText) findViewById(R.id.faceScale);
+        faceScaleET.clearFocus(); //清除焦点
+        faceScaleET.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void onTextChanged(CharSequence arg0, int arg1, int arg2, int arg3) {
+            }
+            @Override
+            public void beforeTextChanged(CharSequence arg0, int arg1, int arg2, int arg3) {
+            }
+            @Override
+            public void afterTextChanged(Editable arg0) {
+                String text = faceScaleET.getText().toString();
+                if(TextUtils.isEmpty(text)){
+                    return;
+                }
+                Log.d("YoloV5Ncnn", "faceScaleET: "+text);
+                int faceScale = Integer.valueOf(text);
+                yolov5ncnn.setFaceScale(faceScale);
+            }
+        });
 
         Button buttonImage = (Button) findViewById(R.id.buttonImage);
         buttonImage.setOnClickListener(new View.OnClickListener() {
@@ -157,13 +182,17 @@ public class MainActivity extends Activity
 
         for (int i = 0; i < objects.length; i++)
         {
+            if(objects[i] == null){
+                continue;
+            }
             paint.setColor(colors[i % 19]);
 
             canvas.drawRect(objects[i].x, objects[i].y, objects[i].x + objects[i].w, objects[i].y + objects[i].h, paint);
 
             // draw filled text inside image
             {
-                String text = objects[i].label + " = " + String.format("%.1f", objects[i].prob * 100) + "%";
+//                String text = objects[i].label + " = " + String.format("%.1f", objects[i].prob * 100) + "%";
+                String text = String.format("%.1f", objects[i].prob * 100) + "%";
 
                 float text_width = textpaint.measureText(text);
                 float text_height = - textpaint.ascent() + textpaint.descent();
@@ -195,6 +224,7 @@ public class MainActivity extends Activity
             try
             {
                 if (requestCode == SELECT_IMAGE) {
+                    timeTV.setText("");
                     bitmap = decodeUri(selectedImage);
 
                     yourSelectedImage = bitmap.copy(Bitmap.Config.ARGB_8888, true);

@@ -31,6 +31,10 @@ static ncnn::PoolAllocator g_workspace_pool_allocator;
 
 static ncnn::Net yolov5;
 
+static const int maxMinFaceScale = 64;
+static int minFaceScale = 8;
+static float faceThreshold = 0.5f;
+
 class YoloV5Focus : public ncnn::Layer
 {
 public:
@@ -89,6 +93,7 @@ struct Object
     float prob;
 };
 
+// 计算两个矩形相交面积
 static inline float intersection_area(const Object& a, const Object& b)
 {
     if (a.x > b.x + b.w || a.x + a.w < b.x || a.y > b.y + b.h || a.y + a.h < b.y)
@@ -103,6 +108,7 @@ static inline float intersection_area(const Object& a, const Object& b)
     return inter_width * inter_height;
 }
 
+// 根据置信度高到底排序
 static void qsort_descent_inplace(std::vector<Object>& faceobjects, int left, int right)
 {
     int i = left;
@@ -140,6 +146,7 @@ static void qsort_descent_inplace(std::vector<Object>& faceobjects, int left, in
     }
 }
 
+// 根据置信度高到底排序
 static void qsort_descent_inplace(std::vector<Object>& faceobjects)
 {
     if (faceobjects.empty())
@@ -148,7 +155,8 @@ static void qsort_descent_inplace(std::vector<Object>& faceobjects)
     qsort_descent_inplace(faceobjects, 0, faceobjects.size() - 1);
 }
 
-static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold)
+// 筛选人脸框 去掉重复的
+static void nms_sorted_bboxes(int minFaceWH, const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold)
 {
     picked.clear();
 
@@ -177,8 +185,9 @@ static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vecto
                 keep = 0;
         }
 
-        if (keep)
+        if (keep && faceobjects[i].prob >= faceThreshold && faceobjects[i].w >= minFaceWH && faceobjects[i].h >= minFaceWH){
             picked.push_back(i);
+        }
     }
 }
 
@@ -187,7 +196,8 @@ static inline float sigmoid(float x)
     return static_cast<float>(1.f / (1.f + exp(-x)));
 }
 
-static void generate_proposals(const ncnn::Mat& anchors, int stride, const ncnn::Mat& in_pad, const ncnn::Mat& feat_blob, float prob_threshold, std::vector<Object>& objects)
+// 产生候选框
+static void generate_proposals(int minFaceWH, const ncnn::Mat& anchors, int stride, const ncnn::Mat& in_pad, const ncnn::Mat& feat_blob, float prob_threshold, std::vector<Object>& objects)
 {
     const int num_grid = feat_blob.h;
 
@@ -269,7 +279,9 @@ static void generate_proposals(const ncnn::Mat& anchors, int stride, const ncnn:
                     obj.label = class_index;
                     obj.prob = confidence;
 
-                    objects.push_back(obj);
+                    if (obj.prob >= faceThreshold && obj.w >= minFaceWH && obj.h >= minFaceWH){
+                        objects.push_back(obj);
+                    }
                 }
             }
         }
@@ -305,7 +317,7 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved)
 }
 
 // public native boolean Init(AssetManager mgr);
-JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* env, jobject thiz, jobject assetManager, jstring paramFileName, jstring binFileName)
+JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* env, jobject thiz, jobject assetManager, jstring paramFileName, jstring binFileName, jint faceScale)
 {
     ncnn::Option opt;
     opt.lightmode = true;
@@ -313,6 +325,8 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* e
     opt.blob_allocator = &g_blob_pool_allocator;
     opt.workspace_allocator = &g_workspace_pool_allocator;
     opt.use_packing_layout = true;
+
+    minFaceScale = faceScale > maxMinFaceScale ? maxMinFaceScale : faceScale;
 
     // use vulkan compute
     if (ncnn::get_gpu_count() != 0)
@@ -363,6 +377,13 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* e
     return JNI_TRUE;
 }
 
+JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_setFaceScale(JNIEnv* env, jobject thiz, jint faceScale)
+{
+    minFaceScale = faceScale > maxMinFaceScale ? maxMinFaceScale : faceScale;
+
+    return JNI_TRUE;
+}
+
 // public native Obj[] Detect(Bitmap bitmap, boolean use_gpu);
 JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNIEnv* env, jobject thiz, jobject bitmap, jboolean use_gpu)
 {
@@ -372,6 +393,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
         //return env->NewStringUTF("no vulkan capable gpu");
     }
 
+    double elasped, end_time;
     double start_time = ncnn::get_current_time();
 
     AndroidBitmapInfo info;
@@ -387,19 +409,23 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
     // letterbox pad to multiple of 32
     int w = width;
     int h = height;
+    int minWH, minFaceWH;
     float scale = 1.f;
     if (w > h)
     {
         scale = (float)target_size / w;
         w = target_size;
         h = h * scale;
+        minWH = h;
     }
     else
     {
         scale = (float)target_size / h;
         h = target_size;
         w = w * scale;
+        minWH = w;
     }
+    minFaceWH = 1.0f * minWH / minFaceScale;
 
     ncnn::Mat in = ncnn::Mat::from_android_bitmap_resize(env, bitmap, ncnn::Mat::PIXEL_RGB, w, h);
 
@@ -410,11 +436,13 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
     ncnn::Mat in_pad;
     ncnn::copy_make_border(in, in_pad, hpad / 2, hpad - hpad / 2, wpad / 2, wpad - wpad / 2, ncnn::BORDER_CONSTANT, 114.f);
 
+    elasped = ncnn::get_current_time() - start_time;
+    __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   image resize", elasped);
     // yolov5
     std::vector<Object> objects;
     {
         const float prob_threshold = 0.25f;
-        const float nms_threshold = 0.45f;
+        const float nms_threshold = 0.65f;
 
         const float norm_vals[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
         in_pad.substract_mean_normalize(0, norm_vals);
@@ -428,9 +456,9 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
         std::vector<Object> proposals;
 
         // anchor setting from yolov5/models/yolov5s.yaml
-
-        // stride 8
-        {
+        elasped = ncnn::get_current_time();
+        // stride 8 检测小目标
+        if(minFaceScale > 32){
             ncnn::Mat out;
             ex.extract("output", out);
 
@@ -443,13 +471,18 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
             anchors[5] = 23.f;
 
             std::vector<Object> objects8;
-            generate_proposals(anchors, 8, in_pad, out, prob_threshold, objects8);
+            generate_proposals(minFaceWH, anchors, 8, in_pad, out, prob_threshold, objects8);
 
             proposals.insert(proposals.end(), objects8.begin(), objects8.end());
+
+            end_time = ncnn::get_current_time();
+            elasped = end_time - elasped;
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   stride 8", elasped);
+            elasped = end_time;
         }
 
-        // stride 16
-        {
+        // stride 16 检测中等目标
+        if(minFaceScale > 16){
             ncnn::Mat out;
             ex.extract("771", out);
 
@@ -462,12 +495,17 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
             anchors[5] = 119.f;
 
             std::vector<Object> objects16;
-            generate_proposals(anchors, 16, in_pad, out, prob_threshold, objects16);
+            generate_proposals(minFaceWH, anchors, 16, in_pad, out, prob_threshold, objects16);
 
             proposals.insert(proposals.end(), objects16.begin(), objects16.end());
+
+            end_time = ncnn::get_current_time();
+            elasped = end_time - elasped;
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   stride 16", elasped);
+            elasped = end_time;
         }
 
-        // stride 32
+        // stride 32 检测大目标
         {
             ncnn::Mat out;
             ex.extract("791", out);
@@ -481,17 +519,32 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
             anchors[5] = 326.f;
 
             std::vector<Object> objects32;
-            generate_proposals(anchors, 32, in_pad, out, prob_threshold, objects32);
+            generate_proposals(minFaceWH, anchors, 32, in_pad, out, prob_threshold, objects32);
 
             proposals.insert(proposals.end(), objects32.begin(), objects32.end());
+
+            end_time = ncnn::get_current_time();
+            elasped = end_time - elasped;
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   stride 32", elasped);
+            elasped = end_time;
         }
 
         // sort all proposals by score from highest to lowest
         qsort_descent_inplace(proposals);
 
+        end_time = ncnn::get_current_time();
+        elasped = end_time - elasped;
+        __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   qsort_descent_inplace", elasped);
+        elasped = end_time;
+
         // apply nms with nms_threshold
         std::vector<int> picked;
-        nms_sorted_bboxes(proposals, picked, nms_threshold);
+        nms_sorted_bboxes(minFaceWH, proposals, picked, nms_threshold);
+
+        end_time = ncnn::get_current_time();
+        elasped = end_time - elasped;
+        __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   nms_sorted_bboxes", elasped);
+        elasped = end_time;
 
         int count = picked.size();
 
@@ -551,8 +604,8 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
         env->SetObjectArrayElement(jObjArray, i, jObj);
     }
 
-    double elasped = ncnn::get_current_time() - start_time;
-    __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   detect", elasped);
+    elasped = ncnn::get_current_time() - start_time;
+    __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   detect\n", elasped);
 
     return jObjArray;
 }
