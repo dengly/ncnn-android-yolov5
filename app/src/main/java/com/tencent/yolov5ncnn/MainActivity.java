@@ -60,7 +60,7 @@ public class MainActivity extends Activity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-        boolean ret_init = yolov5ncnn.Init(getAssets(), "face-best-sim-opt.param", "face-best-sim-opt.bin", 32);
+        boolean ret_init = yolov5ncnn.Init(getAssets(), "face-best-sim-opt.param", "face-best-sim-opt.bin");
         if (!ret_init)
         {
             Log.e("MainActivity", "yolov5ncnn Init failed");
@@ -138,6 +138,7 @@ public class MainActivity extends Activity
             return;
         }
 
+        Log.d("YoloV5Ncnn", (isCpu ? "CPU" : "GPU") + "耗时 " + time +" ms\n\n");
         timeTV.setText((isCpu ? "CPU" : "GPU") + "耗时 " + time +" ms");
 
         // draw objects on bitmap

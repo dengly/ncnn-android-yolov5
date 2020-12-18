@@ -316,8 +316,17 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved)
     ncnn::destroy_gpu_instance();
 }
 
+JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_setFaceScale(JNIEnv* env, jobject thiz, jint faceScale)
+{
+    minFaceScale = faceScale > maxMinFaceScale ? maxMinFaceScale : faceScale;
+
+    faceThreshold = faceScale >= 32 ? 0.5f : faceScale >= 16 ? 0.6f : faceScale >= 8 ? 0.7f : 0.75f ;
+
+    return JNI_TRUE;
+}
+
 // public native boolean Init(AssetManager mgr);
-JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* env, jobject thiz, jobject assetManager, jstring paramFileName, jstring binFileName, jint faceScale)
+JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* env, jobject thiz, jobject assetManager, jstring paramFileName, jstring binFileName)
 {
     ncnn::Option opt;
     opt.lightmode = true;
@@ -325,8 +334,6 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* e
     opt.blob_allocator = &g_blob_pool_allocator;
     opt.workspace_allocator = &g_workspace_pool_allocator;
     opt.use_packing_layout = true;
-
-    minFaceScale = faceScale > maxMinFaceScale ? maxMinFaceScale : faceScale;
 
     // use vulkan compute
     if (ncnn::get_gpu_count() != 0)
@@ -373,13 +380,6 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Init(JNIEnv* e
     hId = env->GetFieldID(objCls, "h", "F");
     labelId = env->GetFieldID(objCls, "label", "Ljava/lang/String;");
     probId = env->GetFieldID(objCls, "prob", "F");
-
-    return JNI_TRUE;
-}
-
-JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_setFaceScale(JNIEnv* env, jobject thiz, jint faceScale)
-{
-    minFaceScale = faceScale > maxMinFaceScale ? maxMinFaceScale : faceScale;
 
     return JNI_TRUE;
 }
@@ -605,7 +605,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
     }
 
     elasped = ncnn::get_current_time() - start_time;
-    __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   detect\n", elasped);
+    __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "%.2fms   detect", elasped);
 
     return jObjArray;
 }

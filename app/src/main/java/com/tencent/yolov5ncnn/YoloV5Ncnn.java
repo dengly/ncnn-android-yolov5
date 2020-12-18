@@ -24,11 +24,15 @@ public class YoloV5Ncnn
      * @param mgr
      * @param paramFileName
      * @param binFileName
+     * @return
+     */
+    public native boolean Init(AssetManager mgr, String paramFileName, String binFileName);
+
+    /**
+     *
      * @param faceScale 最小人脸占图片的宽或高的最小值的比例，取值为 1-64， 如设置为 20，即表示 最小的人脸占宽或高的最小值的 1/20
      * @return
      */
-    public native boolean Init(AssetManager mgr, String paramFileName, String binFileName, int faceScale);
-
     public native boolean setFaceScale(int faceScale);
 
     public class Obj
