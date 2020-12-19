@@ -108,6 +108,19 @@ static inline float intersection_area(const Object& a, const Object& b)
     return inter_width * inter_height;
 }
 
+// 移除不满足条件的后续框
+static void removeUnqualified(std::vector<Object> * faceobjects, float minFaceWH){
+    for(auto faceobject = faceobjects->begin(); faceobject != faceobjects->end(); )
+    {
+//        __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "removeUnqualified minFaceWH:%.1f w:%.1f h:%.1f prob:%.1f", minFaceWH, faceobject->w, faceobject->h, faceobject->prob);
+        if(faceobject->prob < faceThreshold || (faceobject->w < minFaceWH && faceobject->h < minFaceWH)) {
+            faceobject = faceobjects->erase(faceobject);
+        } else {
+            faceobject++;
+        }
+    }
+}
+
 // 根据置信度高到底排序
 static void qsort_descent_inplace(std::vector<Object>& faceobjects, int left, int right)
 {
@@ -156,7 +169,7 @@ static void qsort_descent_inplace(std::vector<Object>& faceobjects)
 }
 
 // 筛选人脸框 去掉重复的
-static void nms_sorted_bboxes(int minFaceWH, const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold)
+static void nms_sorted_bboxes(float minFaceWH, const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold)
 {
     picked.clear();
 
@@ -197,7 +210,7 @@ static inline float sigmoid(float x)
 }
 
 // 产生候选框
-static void generate_proposals(int minFaceWH, const ncnn::Mat& anchors, int stride, const ncnn::Mat& in_pad, const ncnn::Mat& feat_blob, float prob_threshold, std::vector<Object>& objects)
+static void generate_proposals(float minFaceWH, const ncnn::Mat& anchors, int stride, const ncnn::Mat& in_pad, const ncnn::Mat& feat_blob, float prob_threshold, std::vector<Object>& objects)
 {
     const int num_grid = feat_blob.h;
 
@@ -207,9 +220,7 @@ static void generate_proposals(int minFaceWH, const ncnn::Mat& anchors, int stri
     {
         num_grid_x = in_pad.w / stride;
         num_grid_y = num_grid / num_grid_x;
-    }
-    else
-    {
+    } else {
         num_grid_y = in_pad.h / stride;
         num_grid_x = num_grid / num_grid_y;
     }
@@ -279,7 +290,7 @@ static void generate_proposals(int minFaceWH, const ncnn::Mat& anchors, int stri
                     obj.label = class_index;
                     obj.prob = confidence;
 
-                    if (obj.prob >= faceThreshold && obj.w >= minFaceWH && obj.h >= minFaceWH){
+                    if (obj.w >= minFaceWH && obj.h >= minFaceWH){
                         objects.push_back(obj);
                     }
                 }
@@ -320,7 +331,7 @@ JNIEXPORT jboolean JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_setFaceScale(J
 {
     minFaceScale = faceScale > maxMinFaceScale ? maxMinFaceScale : faceScale;
 
-    faceThreshold = faceScale >= 32 ? 0.5f : faceScale >= 16 ? 0.6f : faceScale >= 8 ? 0.7f : 0.75f ;
+    faceThreshold = faceScale < 8 ? 0.75f : faceScale < 16 ? 0.7f : faceScale < 32 ? 0.6f : 0.5f;
 
     return JNI_TRUE;
 }
@@ -409,7 +420,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
     // letterbox pad to multiple of 32
     int w = width;
     int h = height;
-    int minWH, minFaceWH;
+    float minWH, minFaceWH;
     float scale = 1.f;
     if (w > h)
     {
@@ -425,7 +436,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
         w = w * scale;
         minWH = w;
     }
-    minFaceWH = 1.0f * minWH / minFaceScale;
+    minFaceWH = minWH / minFaceScale;
 
     ncnn::Mat in = ncnn::Mat::from_android_bitmap_resize(env, bitmap, ncnn::Mat::PIXEL_RGB, w, h);
 
@@ -441,7 +452,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
     // yolov5
     std::vector<Object> objects;
     {
-        const float prob_threshold = 0.25f;
+        const float prob_threshold = faceThreshold;
         const float nms_threshold = 0.65f;
 
         const float norm_vals[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
@@ -473,6 +484,9 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
             std::vector<Object> objects8;
             generate_proposals(minFaceWH, anchors, 8, in_pad, out, prob_threshold, objects8);
 
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "removeUnqualified objects8 before %d", objects8.size());
+            removeUnqualified(&objects8, minFaceWH);
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "removeUnqualified objects8 after %d", objects8.size());
             proposals.insert(proposals.end(), objects8.begin(), objects8.end());
 
             end_time = ncnn::get_current_time();
@@ -497,6 +511,9 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
             std::vector<Object> objects16;
             generate_proposals(minFaceWH, anchors, 16, in_pad, out, prob_threshold, objects16);
 
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "removeUnqualified objects16 before %d", objects16.size());
+            removeUnqualified(&objects16, minFaceWH);
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "removeUnqualified objects16 after %d", objects16.size());
             proposals.insert(proposals.end(), objects16.begin(), objects16.end());
 
             end_time = ncnn::get_current_time();
@@ -521,6 +538,9 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
             std::vector<Object> objects32;
             generate_proposals(minFaceWH, anchors, 32, in_pad, out, prob_threshold, objects32);
 
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "removeUnqualified objects32 before %d", objects32.size());
+            removeUnqualified(&objects32, minFaceWH);
+            __android_log_print(ANDROID_LOG_DEBUG, "YoloV5Ncnn", "removeUnqualified objects32 before %d", objects32.size());
             proposals.insert(proposals.end(), objects32.begin(), objects32.end());
 
             end_time = ncnn::get_current_time();
@@ -553,13 +573,13 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
         {
             objects[i] = proposals[picked[i]];
 
-            // adjust offset to original unpadded
+            // adjust offset to original unpadded  将偏移调整为原始未添加
             float x0 = (objects[i].x - (wpad / 2)) / scale;
             float y0 = (objects[i].y - (hpad / 2)) / scale;
             float x1 = (objects[i].x + objects[i].w - (wpad / 2)) / scale;
             float y1 = (objects[i].y + objects[i].h - (hpad / 2)) / scale;
 
-            // clip
+            // clip 削减
             x0 = std::max(std::min(x0, (float)(width - 1)), 0.f);
             y0 = std::max(std::min(y0, (float)(height - 1)), 0.f);
             x1 = std::max(std::min(x1, (float)(width - 1)), 0.f);
@@ -569,6 +589,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_tencent_yolov5ncnn_YoloV5Ncnn_Detect(JNI
             objects[i].y = y0;
             objects[i].w = x1 - x0;
             objects[i].h = y1 - y0;
+
         }
     }
 
